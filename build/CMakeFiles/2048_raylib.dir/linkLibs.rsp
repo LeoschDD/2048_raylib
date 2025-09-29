@@ -1,0 +1,1 @@
+ "C:/Users/leoschdd/dev/projects/cpp/2048_raylib/external/raylib-build/raylib/libraylib.a" -lopengl32 -lglu32 -lwinmm -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32 

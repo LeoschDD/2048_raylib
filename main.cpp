@@ -1,9 +1,9 @@
 #include <cmath>
-#include <iostream>
-#include <ostream>
 #include <raylib.h>
 #include <print>
 #include <vector>
+
+#include "raymath.h"
 
 #define WINDOW_WIDTH 400
 #define WINDOW_HEIGHT 400
@@ -15,10 +15,10 @@ static bool animating = false;
 
 typedef struct
 {
+    float spawnSizeFactor;
     int value;
     bool merged;
     Vector2 currPos;
-    Vector2 toPos;
 } Cell;
 
 typedef Cell Grid[GRID_SIZE][GRID_SIZE];
@@ -47,9 +47,6 @@ Color getCellColor(int value)
         case 512: return Color(237,200,80,255);
         case 1024: return Color(237,197,63,255);
         case 2048: return Color(237,194,46,255);
-        case 4096: return Color(60,58,50,255);
-        case 8192: return Color(60,58,50,255);
-        case 16384: return Color(60,58,50,255);
         default: return Color(60,58,50,255);
     }
 }
@@ -61,10 +58,33 @@ void renderGrid(Grid& grid)
         for (int y = 0; y < GRID_SIZE; y ++)
         {
             Cell cell = grid[x][y];
-            DrawRectangle(CELL_SIZE * x, CELL_SIZE * y, CELL_SIZE, CELL_SIZE, getCellColor(cell.value));
-            if (cell.value) DrawText((const char*)std::to_string(cell.value).c_str(), CELL_SIZE * x, CELL_SIZE * y, 20, BLACK);
+            if (cell.value)
+            {
+                DrawRectangle(CELL_SIZE * cell.currPos.x - ((CELL_SIZE * cell.spawnSizeFactor) * 0.5f) + (CELL_SIZE * 0.5f), CELL_SIZE * cell.currPos.y - ((CELL_SIZE * cell.spawnSizeFactor) * 0.5f) + (CELL_SIZE * 0.5f), CELL_SIZE * cell.spawnSizeFactor, CELL_SIZE * cell.spawnSizeFactor, getCellColor(cell.value));
+                DrawText((const char*)std::to_string(cell.value).c_str(), CELL_SIZE * x, CELL_SIZE * y, 20, BLACK);
+            }
         }
     }
+}
+
+bool updateAnimation(Grid& grid)
+{
+    bool animationFinished = true;
+
+    for (int x = 0; x < GRID_SIZE; x++)
+    {
+        for (int y = 0; y < GRID_SIZE; y++)
+        {
+            Cell& cell = grid[x][y];
+            if (cell.spawnSizeFactor < 1.0f) cell.spawnSizeFactor += 0.001f;
+            else if (cell.spawnSizeFactor > 1.0f) cell.spawnSizeFactor = 1.0f;
+            if (cell.currPos.x == (float)x && cell.currPos.y == (float)y) continue;
+            animationFinished = false;
+            cell.currPos = Vector2Lerp(cell.currPos, {(float)x, (float)y}, 0.01f);
+            if (Vector2Distance(cell.currPos, {(float)x, (float)y}) < 0.1f) cell.currPos = {float(x), float(y)};
+        }
+    }
+    return !animationFinished;
 }
 
 bool moveGrid(Grid& grid, MoveDirection direction)
@@ -79,10 +99,11 @@ bool moveGrid(Grid& grid, MoveDirection direction)
         for (int y = 0; y < GRID_SIZE; y++)
         {
             grid[x][y].merged = false;
+            grid[x][y].currPos = {(float)x, (float)y};
         }
     }
 
-    for (int i = 0; i < GRID_SIZE * GRID_SIZE; i++)
+    for (int i = 0; i < GRID_SIZE; i++)
     {
         for (int x = 0; x < GRID_SIZE; x++)
         {
@@ -106,10 +127,22 @@ bool moveGrid(Grid& grid, MoveDirection direction)
                         thisCell.value = 0;
                         nextCell.value *= 2;
                         nextCell.merged = true;
+                        nextCell.currPos = {(float)x, (float)y};
                     }
-                    else if (nextCell.value == 0)
+                }
+                for (int j = 1; j <= GRID_SIZE; j++)
+                {
+                    // out of bound check
+                    if (x + (j * dirX) < 0 || x + (j * dirX) >= GRID_SIZE ||
+                        y + (j * dirY) < 0 || y + (j * dirY) >= GRID_SIZE) break;
+
+                    Cell& nextCell = grid[x + (j * dirX)][y + (j * dirY)];
+
+                    //merged
+                    if (nextCell.value == 0)
                     {
                         moved = true;
+                        nextCell.currPos = {(float)x, (float)y};
                         nextCell.value = grid[x + ((j - 1) * dirX)][y + ((j - 1) * dirY)].value;
                         grid[x + ((j - 1) * dirX)][y + ((j - 1) * dirY)].value = 0;
                     }
@@ -118,6 +151,7 @@ bool moveGrid(Grid& grid, MoveDirection direction)
             }
         }
     }
+    animating = moved;
     return moved;
 }
 
@@ -135,6 +169,8 @@ void spawnCell(Grid& grid)
 
     Vector2 spawn = empty[rand() % (empty.size())];
     grid[(int)spawn.x][(int)spawn.y].value = (rand() % 10 == 0) ? 4 : 2;
+    grid[(int)spawn.x][(int)spawn.y].currPos = spawn;
+    grid[(int)spawn.x][(int)spawn.y].spawnSizeFactor = 0.1f;
 }
 
 bool canMove(Grid& grid)
@@ -169,16 +205,25 @@ int main()
 
     while (!WindowShouldClose())
     {
+        bool spawn = false;
+
         if (!animating)
         {
-            if (IsKeyPressed(KEY_DOWN)) if (moveGrid(grid, MoveDirection::DOWN)) spawnCell(grid);
-            if (IsKeyPressed(KEY_UP)) if (moveGrid(grid, MoveDirection::UP)) spawnCell(grid);
-            if (IsKeyPressed(KEY_LEFT)) if (moveGrid(grid, MoveDirection::LEFT)) spawnCell(grid);
-            if (IsKeyPressed(KEY_RIGHT)) if (moveGrid(grid, MoveDirection::RIGHT)) spawnCell(grid);
+
+            if (IsKeyPressed(KEY_DOWN)) if (moveGrid(grid, MoveDirection::DOWN)) spawn = true;
+            if (IsKeyPressed(KEY_UP)) if (moveGrid(grid, MoveDirection::UP)) spawn = true;
+            if (IsKeyPressed(KEY_LEFT)) if (moveGrid(grid, MoveDirection::LEFT)) spawn = true;
+            if (IsKeyPressed(KEY_RIGHT)) if (moveGrid(grid, MoveDirection::RIGHT)) spawn = true;
         }
+        if (spawn) spawnCell(grid);
+
+        animating = updateAnimation(grid);
+
         BeginDrawing();
+        ClearBackground(WHITE);
         renderGrid(grid);
         if (!canMove(grid)) DrawText("GAME OVER!", 30, 20, 50, BLACK);
+
         EndDrawing();
     }
     return 0;
